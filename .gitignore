@@ -1,0 +1,6 @@
+.DS_Store
+eagle.epf
+*.s#*
+*.b#*
+*.zip
+*.pdf
