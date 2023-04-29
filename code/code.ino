@@ -114,7 +114,10 @@ bool btnScan() {
 
     #if defined(DEBUG)
     Serial.print("Sampled Resistance Value: ");
-    Serial.println(sampleVal);
+    Serial.print(sampleVal);
+    Serial.print(" over ");
+    Serial.print(sampleCnt);
+    Serial.println(" samples");
     #endif
 
     // Reset Sample Array Counter
