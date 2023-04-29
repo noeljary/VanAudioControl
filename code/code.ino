@@ -112,6 +112,11 @@ bool btnScan() {
     }
     int sampleVal = sampleAvg / (sampleCnt - 4);
 
+    #if defined(DEBUG)
+    Serial.print("Sampled Resistance Value: ");
+    Serial.println(sampleVal);
+    #endif
+
     // Reset Sample Array Counter
     sampleCnt = 0;
 
