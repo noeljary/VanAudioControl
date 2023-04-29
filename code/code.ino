@@ -31,75 +31,109 @@ uint32_t hu_cmd_map_sht[5]  = {A_TRACKNEXT, A_TRACKPREV, A_VOLUP, A_VOLDOWN, A_V
 uint32_t hu_cmd_map_lng[5]  = {A_PHONEDOWN, A_PHONEUP,   A_MUTE,  A_MUTE,    A_SOURCE};
 int      divider_resistance = 364;
 
-// Button Press State Variables
-int button_i = 0;
-int button_p = 0;
-int button_t = 0;
+// Button Press Calculation Variables
+int  threshold = resistor_ladder[0] - ((resistor_ladder[0] - resistor_ladder[1]) / 2);
+bool btnActive = false;
+byte buttonPr  = 0;
+int  sampleTme = 0;
+int  sampleCnt = 0;
+int  sampleArr[50];
 
 void setup() {
   Serial.begin(9600);
+
+  // Initialise Pin State for Head Unit Output
   pinMode(HU_OUT_PIN, OUTPUT);
   digitalWrite(HU_OUT_PIN, LOW);
 }
 
 void loop() {
-  if(btnScan()) {
+  // Enter Button Scan Continuous Loop
+  if(btnScan()) { // Returns True on Button Release
     #if defined(DEBUG)
     Serial.print("Pressed Button: ");
-    Serial.print(resistor_ladder[button_p]);
+    Serial.print(resistor_ladder[buttonPr]);
     Serial.print(" for ");
-    Serial.print(button_t);
+    Serial.print(sampleTme);
     Serial.println("ms");
     #endif
 
-    // Long/Short Button Press
-    if(button_t >= 750) {
-      sendRemoteCommand(hu_cmd_map_lng[button_p - 1]);
+    // Send Commands to Radio after Button Press based on Sample Time
+    if(sampleTme >= 750) {
+      sendRemoteCommand(hu_cmd_map_lng[buttonPr - 1]);
     } else {
-      sendRemoteCommand(hu_cmd_map_sht[button_p - 1]);
+      sendRemoteCommand(hu_cmd_map_sht[buttonPr - 1]);
     }
-  }
 
-  delay(10);
+    // Block Minimum Time Between Button Presses
+    delay(5);
+  }
 }
 
 bool btnScan() {
-  // Average ADC Reading
-  int btn = 0;
 
+  // Initial ADC Sample
+  int btn = 0;
   for(byte i = 0; i < 5; i++) {
     btn += analogRead(SW_IN_PIN);
-    delay(1);
+    delayMicroseconds(100);
   }
 
-  btn /= 5;
-
   // Calculate Resistance Value from ADC
-  int r1 = ((divider_resistance / ((btn / 1024.0) * 5)) * 5) - divider_resistance;
+  int r1 = ((divider_resistance / (((btn / 5) / 1024.0) * 5)) * 5) - divider_resistance;
 
-  // Match Resistance Value to Resistance Ladder
-  for(byte i = 0; i < sizeof(resistor_ladder) / sizeof(int); i++) {
-    int hval = (i == 0) ? resistor_ladder[0] * 2 : resistor_ladder[i] + ((resistor_ladder[i - 1] - resistor_ladder[i]) / 2);
-    int lval = (i == (sizeof(resistor_ladder) / sizeof(int))  - 1) ? 0 : resistor_ladder[i] - ((resistor_ladder[i] - resistor_ladder[i + 1]) / 2);
+  // Button Pressed Checks
+  if(r1 < threshold) { // Resistance Below 'Pressed' Threshold
+    // Begin Button Press Timer
+    if(!btnActive) {
+      sampleTme = millis();
+    }
 
-    if(r1 >= lval && r1 < hval) {
-      if(button_i != i) {
-        if(i > 0) {
-          button_t = millis();
-        } else {
-          button_t = millis() - button_t;
-        }
+    // Set Button State as being Pressed
+    btnActive = true;
 
-        button_p = button_i;
-        button_i = i;
+    // Add Button Resistances to Sample Array
+    if(sampleCnt < (sizeof(sampleArr) / sizeof(int))) {
+      sampleArr[sampleCnt++] = r1;
+    }
+  } else if (r1 >= threshold && btnActive) { // Resistance Above 'Pressed' Threshold
+    // Set Button State as Released
+    btnActive = false;
 
-        if(i == 0) {
-          // Button Pressed and Recognised
-          return true;
-        }
+    // Ensure Sufficient Sample Size
+    if(sampleCnt < 5) {
+      return false;
+    }
+
+    // Convert Sample Array to Value - Discarding Start/End Values
+    long sampleAvg = 0;
+    for(byte i = 2; i <= sampleCnt - 2; i++) {
+      sampleAvg += sampleArr[i];
+    }
+    int sampleVal = sampleAvg / (sampleCnt - 4);
+
+    // Reset Sample Array Counter
+    sampleCnt = 0;
+
+    // Get Button Pressed Time
+    sampleTme = millis() - sampleTme;
+
+    // Convert Sampled Resistance to Specific Button
+    for(byte i = 0; i < sizeof(resistor_ladder) / sizeof(int); i++) {
+      int hval = (i == 0) ? resistor_ladder[0] * 2 : resistor_ladder[i] + ((resistor_ladder[i - 1] - resistor_ladder[i]) / 2);
+      int lval = (i == (sizeof(resistor_ladder) / sizeof(int))  - 1) ? 0 : resistor_ladder[i] - ((resistor_ladder[i] - resistor_ladder[i + 1]) / 2);
+
+      if(sampleVal >= lval && sampleVal < hval) {
+        buttonPr = i;
+
+        // Return True for Recognised Button Press
+        return true;
       }
     }
   }
+
+  // Delay 1ms between Scan Cycles 
+  delay(1);
 
   return false;
 }
